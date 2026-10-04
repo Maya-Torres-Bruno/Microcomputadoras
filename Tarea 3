@@ -1,0 +1,123 @@
+list p=16f877a
+    #include <p16f877a.inc>
+
+    ; --- CONFIGURACI�N DE FUSIBLES ---
+    __CONFIG _FOSC_XT & _WDTE_OFF & _PWRTE_ON & _BOREN_OFF & _LVP_OFF
+
+    ; --- VARIABLES EN MEMORIA RAM ---
+    CBLOCK 0x20
+        UNIDADES      ; Guarda el valor num�rico (0-9) de las unidades
+        DECENAS       ; Guarda el valor num�rico (0-9) de las decenas
+        CONT1         ; Variables para la rutina de retardo
+        CONT2
+        CONT3
+    ENDC
+
+    ORG 0x00        ; Vector de inicio
+    goto INICIO
+
+    ; --- TABLA DE CONVERSI�N A 7 SEGMENTOS (C�todo Com�n) ---
+    ; Retorna el c�digo hexadecimal para encender los LEDs correspondientes a cada n�mero
+TABLA_7SEG
+    addwf   PCL, F
+    retlw   b'00111111' ; 0
+    retlw   b'00000110' ; 1
+    retlw   b'01011011' ; 2
+    retlw   b'01001111' ; 3
+    retlw   b'01100110' ; 4
+    retlw   b'01101101' ; 5
+    retlw   b'01111101' ; 6
+    retlw   b'00000111' ; 7
+    retlw   b'01111111' ; 8
+    retlw   b'01101111' ; 9
+
+INICIO
+    ; --- CONFIGURACI�N DE PUERTOS ---
+    banksel TRISB
+    clrf    TRISB       ; PORTB como salida (Unidades)
+    clrf    TRISD       ; PORTD como salida (Decenas)
+    movlw   0xFF
+    movwf   TRISC       ; PORTC como entrada (Para leer el pin RC0)
+    banksel PORTB
+
+    ; Inicializar contadores en 0
+    clrf    UNIDADES
+    clrf    DECENAS
+
+BUCLE_PRINCIPAL
+    ; --- MOSTRAR D�GITOS ---
+    ; Mostrar Unidades en PORTB
+    movf    UNIDADES, W
+    call    TABLA_7SEG
+    movwf   PORTB
+
+    ; Mostrar Decenas en PORTD
+    movf    DECENAS, W
+    call    TABLA_7SEG
+    movwf   PORTD
+
+    ; --- RETARDO DE 250 ms ---
+    call    RETARDO_250MS
+
+    ; --- EVALUAR SENTIDO DEL CONTEO ---
+    btfsc   PORTC, 0    ; Leer el pin RC0
+    goto    ASCENDENTE  ; Si es 1, salta a ASCENDENTE
+    goto    DESCENDENTE ; Si es 0, salta a DESCENDENTE
+
+    ; --- L�GICA DE CONTEO ASCENDENTE ---
+ASCENDENTE
+    incf    UNIDADES, F ; Incrementar unidades
+    movf    UNIDADES, W
+    xorlw   .10         ; Comprobar si lleg� a 10
+    btfss   STATUS, Z
+    goto    BUCLE_PRINCIPAL ; Si no es 10, seguir mostrando
+    
+    ; Si lleg� a 10, resetear unidades e incrementar decenas
+    clrf    UNIDADES    
+    incf    DECENAS, F
+    movf    DECENAS, W
+    xorlw   .10         ; Comprobar si las decenas llegaron a 10
+    btfss   STATUS, Z
+    goto    BUCLE_PRINCIPAL ; Si no es 10, seguir mostrando
+    
+    ; Si lleg� a 99 y aumenta, desborda a 00
+    clrf    DECENAS
+    goto    BUCLE_PRINCIPAL
+
+    ; --- L�GICA DE CONTEO DESCENDENTE ---
+DESCENDENTE
+    decf    UNIDADES, F ; Decrementar unidades
+    movlw   .255        ; 255 es el valor que toma el registro si se decrementa el 0
+    xorwf   UNIDADES, W 
+    btfss   STATUS, Z
+    goto    BUCLE_PRINCIPAL ; Si no baj� de 0, seguir mostrando
+    
+    ; Si baj� de 0, colocar unidades en 9 y decrementar decenas
+    movlw   .9
+    movwf   UNIDADES
+    decf    DECENAS, F
+    movlw   .255        ; Comprobar si las decenas bajaron de 0
+    xorwf   DECENAS, W
+    btfss   STATUS, Z
+    goto    BUCLE_PRINCIPAL
+    
+    ; Si baj� de 00, desborda a 99
+    movlw   .9
+    movwf   DECENAS
+    goto    BUCLE_PRINCIPAL
+
+    ; --- SUBRUTINA DE RETARDO (250 milisegundos para oscilador de 4MHz) ---
+RETARDO_250MS
+    movlw   .250
+    movwf   CONT1
+L1  movlw   .200
+    movwf   CONT2
+L2  nop
+    nop
+    decfsz  CONT2, F
+    goto    L2
+    decfsz  CONT1, F
+    goto    L1
+    return
+
+    END
