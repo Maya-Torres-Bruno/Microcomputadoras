@@ -1,0 +1,109 @@
+list p=16f877a
+    #include <p16f877a.inc>
+
+    ; --- CONFIGURACI�N DE FUSIBLES ---
+    __CONFIG _FOSC_XT & _WDTE_OFF & _PWRTE_ON & _BOREN_OFF & _LVP_OFF
+
+    ; --- VARIABLES EN MEMORIA RAM ---
+    CBLOCK 0x20
+        N1          ; Variable para el nibble alto (n�mero 1)
+        N2          ; Variable para el nibble bajo (n�mero 2)
+        RESULTADO   ; Variable para guardar el resultado de la multiplicaci�n
+        CONTADOR    ; Variable usada para las sumas sucesivas
+    ENDC
+
+    ORG 0x00        ; Vector de inicio o reset
+    goto INICIO
+
+INICIO
+    ; --- CONFIGURACI�N DE PUERTOS ---
+    banksel TRISB   ; Cambiar al Banco 1 de memoria
+    
+    ; Configurar PORTB como entradas (Para los operandos N1 y N2)
+    movlw   0xFF
+    movwf   TRISB   
+    
+    ; Configurar pines del PORTA como digitales (Apagar convertidor ADC)
+    movlw   0x06
+    movwf   ADCON1  
+    
+    ; Configurar PORTA como entradas (Para el DIP switch selector DSW1)
+    movlw   0xFF
+    movwf   TRISA   
+    
+    ; Configurar PORTD como salidas (Para la barra de LEDs U2)
+    clrf    TRISD   
+    
+    banksel PORTA   ; Regresar al Banco 0 de memoria
+
+BUCLE_PRINCIPAL
+    ; --- LECTURA Y SEPARACI�N DE NIBBLES (PORTB) ---
+    ; Leer el nibble bajo (N2)
+    movf    PORTB, W
+    movwf   N2
+    movlw   0x0F
+    andwf   N2, F   ; Enmascarar para conservar solo los 4 bits menos significativos
+
+    ; Leer el nibble alto (N1)
+    swapf   PORTB, W ; Intercambiar nibbles alto y bajo, y guardar en W
+    movwf   N1
+    movlw   0x0F
+    andwf   N1, F   ; Enmascarar para conservar el valor como un n�mero de 0 a 15
+
+    ; --- SELECCI�N DE OPERACI�N (PORTA) ---
+    ; Revisar el bit 1 (RA1) del selector
+    btfsc   PORTA, 1    
+    goto    CHK_MULT
+    
+    ; Si RA1 es '0', revisamos el bit 0 (RA0)
+    btfsc   PORTA, 0
+    goto    RUTINA_RESTA ; Si es 01 -> Resta
+    goto    RUTINA_SUMA  ; Si es 00 -> Suma
+
+CHK_MULT
+    ; Si RA1 es '1', revisamos el bit 0 (RA0)
+    btfsc   PORTA, 0
+    goto    BUCLE_PRINCIPAL ; Si es 11 -> Indefinido / No hace nada
+    goto    RUTINA_MULT     ; Si es 10 -> Multiplicaci�n
+
+    ; --- a) OPERACI�N SUMA (Enteros no signados) ---
+RUTINA_SUMA
+    movf    N1, W       ; Cargar N1 en el acumulador W
+    addwf   N2, W       ; Sumar N2 a W (W = N1 + N2)
+    movwf   PORTD       ; Mostrar resultado en la barra de LEDs
+    goto    BUCLE_PRINCIPAL
+
+    ; --- b) OPERACI�N RESTA (Complemento a 2) ---
+RUTINA_RESTA
+    movf    N2, W       ; Cargar N2 en el acumulador W
+    subwf   N1, W       ; Restar W a N1 (W = N1 - N2)
+    movwf   PORTD       ; Mostrar resultado en la barra de LEDs (Incluye comp. a 2 autom�tico)
+    goto    BUCLE_PRINCIPAL
+
+    ; --- c) OPERACI�N MULTIPLICACI�N (Enteros no signados) ---
+RUTINA_MULT
+    clrf    RESULTADO   ; Inicializar el resultado en 0
+    
+    ; Verificar si N1 es 0 (cualquier n�mero multiplicado por 0 es 0)
+    movf    N1, F       
+    btfsc   STATUS, Z   ; Revisar la bandera Zero (Z)
+    goto    FIN_MULT    
+    
+    ; Cargar N1 como el contador de iteraciones
+    movf    N1, W
+    movwf   CONTADOR    
+
+LAZO_MULT
+    ; Sumar N2 repetidamente seg�n el valor de N1
+    movf    N2, W
+    addwf   RESULTADO, F ; RESULTADO = RESULTADO + N2
+    decfsz  CONTADOR, F  ; Decrementar el contador. Si llega a 0, saltar la siguiente l�nea
+    goto    LAZO_MULT    ; Volver a sumar si el contador no es 0
+
+FIN_MULT
+    ; Mostrar el resultado en el puerto
+    movf    RESULTADO, W
+    movwf   PORTD        
+    goto    BUCLE_PRINCIPAL
+
+    END
